@@ -24,7 +24,7 @@ std::map<std::string, bool> io::Exiv2FrameReader::probeImage(const std::string &
   tag_existence[m_frame_tags.longituderef] = false;
   tag_existence[m_frame_tags.altitude] = false;
   tag_existence[m_frame_tags.heading] = false;
-
+  tag_existence[m_frame_tags.user_comment] = false;
   Exiv2ImagePointer exif_img = Exiv2::ImageFactory::open(filepath);
   if (exif_img.get())
   {
@@ -40,11 +40,37 @@ std::map<std::string, bool> io::Exiv2FrameReader::probeImage(const std::string &
     tag_existence[m_frame_tags.longituderef] = probeTag(m_frame_tags.longituderef, exif_data, xmp_data);
     tag_existence[m_frame_tags.altitude] = probeTag(m_frame_tags.altitude, exif_data, xmp_data);
     tag_existence[m_frame_tags.heading] = probeTag(m_frame_tags.heading, exif_data, xmp_data);
+    tag_existence[m_frame_tags.user_comment] = probeTag(m_frame_tags.user_comment, exif_data, xmp_data);
   }
 
   return tag_existence;
 }
+cv::Mat io::Exiv2FrameReader::eulerToRotationMatrix(Attitude attitude) {
+    double yaw   = attitude.yaw;
+    double pitch = attitude.pitch;
+    double roll  = attitude.roll;
+    // 将角度转换为弧度
+    yaw   = yaw   * M_PI / 180.0;
+    pitch = pitch * M_PI / 180.0;
+    roll  = roll  * M_PI / 180.0;
 
+    // 计算三角函数值
+    double cy = cos(yaw);
+    double sy = sin(yaw);
+    double cp = cos(pitch);
+    double sp = sin(pitch);
+    double cr = cos(roll);
+    double sr = sin(roll);
+
+    // 构建旋转矩阵
+    cv::Mat R = (cv::Mat_<double>(3, 3) <<
+        cy * cp,   cy * sp * sr - sy * cr,   cy * sp * cr + sy * sr,
+        sy * cp,   sy * sp * sr + cy * cr,   sy * sp * cr - cy * sr,
+        -sp,       cp * sr,                  cp * cr
+    );
+
+    return R;
+}
 Frame::Ptr io::Exiv2FrameReader::loadFrameFromExiv2(const std::string &camera_id, const camera::Pinhole::Ptr &cam, const std::string &filepath)
 {
   Exiv2ImagePointer exif_img = Exiv2::ImageFactory::open(filepath);
@@ -67,14 +93,17 @@ Frame::Ptr io::Exiv2FrameReader::loadFrameFromExiv2(const std::string &camera_id
       if (!readMetaTagCameraId(exif_data, xmp_data, &camera_id_set))
         camera_id_set = "unknown_id";
     }
-
+    Attitude attitude{0};
+    if (!readAttitude(exif_data, &attitude)) {
+        attitude.yaw = 0.0;
+    }
     WGSPose wgs{0};
     if (!readMetaTagLatitude(exif_data, xmp_data, &wgs.latitude))
       wgs.latitude = 0.0;
 
     if (!readMetaTagLongitude(exif_data, xmp_data, &wgs.longitude))
       wgs.longitude = 0.0;
-
+else 
     if (!readMetaTagAltitude(exif_data, xmp_data, &wgs.altitude))
       wgs.altitude = 0.0;
 
@@ -91,11 +120,44 @@ Frame::Ptr io::Exiv2FrameReader::loadFrameFromExiv2(const std::string &camera_id
     if (!readMetaTagTimestamp(exif_data, xmp_data, &timestamp_val))
       timestamp_val = Timer::getCurrentTimeMilliseconds();
 
-    return std::make_shared<Frame>(camera_id, frame_id, timestamp_val, img, utm, cam, computeOrientationFromHeading(utm.heading));
+    return std::make_shared<Frame>(camera_id, frame_id, timestamp_val, img, utm, cam, eulerToRotationMatrix(attitude));
+    //return std::make_shared<Frame>(camera_id, frame_id, timestamp_val, img, utm, cam, computeOrientationFromHeading(utm.heading));
   }
   return nullptr;
 }
 
+bool io::Exiv2FrameReader::readAttitude(Exiv2::ExifData &exif_data,
+                                      Attitude* attitude)
+{
+    for (auto& md : exif_data) {
+        std::cout << md.key() << " " << md.toString() << std::endl;
+        if (md.key().find("Exif.Photo.UserComment") != std::string::npos) {
+            std::string comment = md.toString();
+            size_t json_start = comment.find('{');
+            if (json_start == std::string::npos) {
+                std::cerr << "No JSON found in UserComment" << std::endl;
+                continue;
+            }
+            
+            try {
+                std::string json_str = comment.substr(json_start);
+                std::cout << "Pure JSON: " << json_str << std::endl;
+
+                nlohmann::json json = nlohmann::json::parse(json_str);
+                
+                attitude->yaw = json.value("yaw", 0.0);
+                attitude->pitch = json.value("pitch", 0.0);
+                attitude->roll = json.value("roll", 0.0);
+                return true;
+            } 
+            catch (const std::exception& e) {
+                std::cerr << "JSON parse error: " << e.what() << std::endl;
+                continue;
+            }
+        }
+    }
+    return false;
+}
 bool io::Exiv2FrameReader::readMetaTagCameraId(Exiv2::ExifData &exif_data, Exiv2::XmpData &xmp_data, std::string* camera_id)
 {
   if (isXmpTag(m_frame_tags.camera_id))
@@ -278,6 +340,14 @@ bool io::Exiv2FrameReader::isXmpTag(const std::string &tag)
 
 bool io::Exiv2FrameReader::probeTag(const std::string &tag, Exiv2::ExifData &exif_data, Exiv2::XmpData &xmp_data)
 {
+  if (tag == m_frame_tags.user_comment) {
+        for (auto& md : exif_data) {
+            if (md.key().find("UserComment") != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+  }
   if (isXmpTag(tag))
   {
     if (xmp_data.findKey(Exiv2::XmpKey(tag)) != xmp_data.end())

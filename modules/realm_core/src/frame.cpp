@@ -46,6 +46,8 @@ Frame::Frame(const std::string &camera_id,
   m_camera_model->setPose(getDefaultPose());
 }
 
+
+
 // GETTER
 
 std::string Frame::getCameraId() const

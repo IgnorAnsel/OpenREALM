@@ -2,7 +2,7 @@
 
 #ifndef PROJECT_EXIF_IMPORT_H
 #define PROJECT_EXIF_IMPORT_H
-
+#include "json.hpp" // ##
 #include <exiv2/exiv2.hpp>
 
 #include <realm_core/conversions.h>
@@ -26,17 +26,23 @@ namespace io
 class Exiv2FrameReader
 {
   public:
+    struct Attitude {
+      double yaw = 0.0;
+      double pitch = 0.0;
+      double roll = 0.0;
+    };
     struct FrameTags
     {
         FrameTags()
-        : timestamp("Xmp.exif.REALM.Timestamp"),
+        : timestamp("Exif.Photo.DateTimeOriginal"),
           camera_id("Exif.Image.Model"),
           heading("Xmp.exif.REALM.Heading"),
           latitude("Exif.GPSInfo.GPSLatitude"),
           latituderef("Exif.GPSInfo.GPSLatitudeRef"),
           longitude("Exif.GPSInfo.GPSLongitude"),
           longituderef("Exif.GPSInfo.GPSLongitudeRef"),
-          altitude("Exif.GPSInfo.GPSAltitude")
+          altitude("Exif.GPSInfo.GPSAltitude"),
+          user_comment("UserComment")
         {
         }
 
@@ -47,7 +53,8 @@ class Exiv2FrameReader
                   const std::string &latituderef,
                   const std::string &longitude,
                   const std::string &longituderef,
-                  const std::string &altitude)
+                  const std::string &altitude,
+                  const std::string &user_comment)
         : timestamp(timestamp),
           camera_id(camera_id),
           heading(heading),
@@ -55,7 +62,8 @@ class Exiv2FrameReader
           latituderef(latituderef),
           longitude(longitude),
           longituderef(longituderef),
-          altitude(altitude)
+          altitude(altitude),
+          user_comment(user_comment)
         {
         }
 
@@ -73,7 +81,8 @@ class Exiv2FrameReader
                       fs["Frame.latituderef_tag"],
                       fs["Frame.longitude_tag"],
                       fs["Frame.longituderef_tag"],
-                      fs["Frame.altitude_tag"]
+                      fs["Frame.altitude_tag"],
+                      fs["Frame.user_comment_tag"],
                     };
           }
           catch(...)
@@ -90,6 +99,7 @@ class Exiv2FrameReader
         std::string longitude;
         std::string longituderef;
         std::string altitude;
+        std::string user_comment;
     };
 
 public:
@@ -156,6 +166,9 @@ private:
    * @param camera_id Output camera id
    * @return True if tag was found
    */
+  cv::Mat eulerToRotationMatrix(Attitude attitude);
+  bool readAttitude(Exiv2::ExifData &exif_data,
+                                      Attitude* attitude);
   bool readMetaTagCameraId(Exiv2::ExifData &exif_data, Exiv2::XmpData &xmp_data, std::string* camera_id);
 
   /*!

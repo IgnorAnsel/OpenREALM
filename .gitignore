@@ -6,3 +6,6 @@ build/*
 
 modules/realm_vslam/realm_vslam_impl/*
 !modules/realm_vslam/realm_vslam_impl/orb_slam_2
+
+catkin_ws/*
+
