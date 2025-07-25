@@ -119,7 +119,8 @@ else
     uint64_t timestamp_val;
     if (!readMetaTagTimestamp(exif_data, xmp_data, &timestamp_val))
       timestamp_val = Timer::getCurrentTimeMilliseconds();
-
+    if(utm.heading)
+      return std::make_shared<Frame>(camera_id, frame_id, timestamp_val, img, utm, cam, computeOrientationFromHeading(utm.heading));
     return std::make_shared<Frame>(camera_id, frame_id, timestamp_val, img, utm, cam, eulerToRotationMatrix(attitude));
     //return std::make_shared<Frame>(camera_id, frame_id, timestamp_val, img, utm, cam, computeOrientationFromHeading(utm.heading));
   }
